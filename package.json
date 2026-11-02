@@ -8,9 +8,6 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
-    "db:start": "supabase start",
-    "db:reset": "supabase db reset",
-    "db:test": "supabase test db",
     "test": "vitest run"
   },
   "dependencies": {
