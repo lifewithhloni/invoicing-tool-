@@ -49,7 +49,7 @@ What it confirms:
 - **No PO number** on the invoice, which answers Q23 (no PO).
 - **Deductions exist:** a "monthly diesel deduction" is subtracted after the subtotal. Invoices therefore need **deduction lines** (description + amount) between subtotal and total payable.
 
-**Rounding finding:** the seven rounded lines add up to **R159,631.68**, but the subtotal shows **R159,631.67**. The spreadsheet calculates the subtotal as total tons (244.74) × R652.25 = 159,631.665 → .67, rather than adding the lines. The new system has to pick one rule — see Q24.
+**Rounding finding:** the seven rounded lines add up to **R159,631.68**, but the subtotal shows **R159,631.67**. The spreadsheet calculates the subtotal as total tons (244.74) × R652.25 = 159,631.665 → .67, rather than adding the lines. **Decided (Q24):** the subtotal is the **sum of the rounded lines**, so every invoice adds up. On this example the new system would show R159,631.68 (one cent more than the spreadsheet).
 
 What stays the same: two slips per trip, automatic pairing by collection ticket number (§5), AI-assisted reading with human verification (§8), weights in kg with `numeric` maths, versioned prices, immutable issued invoices, credit notes, payments, VAT tick box, audit log.
 
@@ -376,11 +376,12 @@ Revised (§0): drivers have no accounts, so there are two roles.
 | Q12 | Drivers don't log in; office staff upload the slips |
 | Q21 | The business is a **transporter paid per ton** to haul coal; no coal purchase side |
 | Q22 | **One rate per customer**, versioned by effective date — not per route or product |
+| Q24 | Subtotal = **sum of rounded lines** (each line `round(tons × rate, 2)` half-up) |
 | Q23 | No PO on invoices; one invoice per customer per month (from the current template, §0.1) |
 | — | Business = Arete Conglomerate; customer = PBSA Logistics; current rate R652.25/t; no VAT (§0.1) |
 | — | Single company (one business using the system) for now |
 
-Q17 answered with 5 sample photos (§8.1). Still open: Q24–Q27 (raised by the current invoice), Q6 (other costs to track?).
+Q17 answered with 5 sample photos (§8.1). Still open: Q25–Q27 (raised by the current invoice), Q6 (other costs to track?).
 
 ## 11. Unresolved business questions
 
@@ -435,7 +436,7 @@ Each phase ends with a test gate before the next starts.
 
 | Phase | Deliverables | Test gate |
 | --- | --- | --- |
-| **1. Audit & architecture** | This document | Your approval + answers to Q24–Q27 |
+| **1. Audit & architecture** | This document | Your approval + answers to Q25–Q27 |
 | **2. Core infrastructure** | New repo; Supabase project & CLI migrations; auth & roles; RLS; company settings; customers, collection & destination sites, coal products with weighbridge aliases, drivers, trucks; one haulage rate per customer with effective dates & overlap constraint; audit triggers | RLS tests per role (pgTAP); price-overlap and history tests; CRUD screens checked on mobile |
 | **3. Delivery management** | Delivery creation; numbering; office slip upload (single and batch) to private storage; pairing by collection ticket number; status function | File access only via signed URLs; pairing and status transitions unit-tested |
 | **4. AI extraction** | Extraction worker; schema & validation; review screen; verification; duplicate ticket/file detection; manual-capture fallback | Run against your real sample slips, measure field accuracy; blurry/missing-net cases go to review |
@@ -444,4 +445,4 @@ Each phase ends with a test gate before the next starts.
 | **7. Dashboard & reports** | Dashboard KPIs with date filter; daily/weekly/monthly delivery, reconciliation, customer statements, outstanding invoices, revenue per route/customer; Excel & PDF export | Report totals cross-checked against underlying records |
 | **8. Testing & production** | End-to-end tests (Playwright), security review, backups, monitoring, production Supabase, deployment, user guide for office staff | Pilot with real deliveries alongside the current manual process for 2–4 weeks |
 
-**Next step:** answer Q24–Q27, then Phase 2 starts. (Phase 2 tables don't depend on Q24–Q27, so it can start in parallel if you approve the design.)
+**Next step:** answer Q25–Q27, then Phase 2 starts. (Phase 2 tables don't depend on Q25–Q27, so it can start in parallel if you approve the design.)
