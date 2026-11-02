@@ -1,7 +1,31 @@
 # Coal Delivery, Reconciliation & Invoicing System — Phase 1: Audit & Architecture
 
-Status: **Proposal — awaiting approval.**
+Status: **Proposal (revision 2) — awaiting approval.**
 Date: 2 November 2026
+
+---
+
+## 0. Revision 2 — the business is a coal transporter (read this first)
+
+Answers received on 2 November 2026 change the business model this document was first written for. Where an earlier section disagrees with this one, **this section wins**.
+
+- **What the business does:** it hauls coal and is **paid per ton** by its customer (e.g. Exxaro). It does not buy or sell coal. (Q21)
+- **Revenue:** `delivered net tons × agreed haulage rate per ton`, using the rate in force on the invoice date. (Q3, Q4)
+- **No coal supplier side in the first version.** The mines and weighbridges (Grootegeluk, Exxaro Reductants…) are **collection sites**, not suppliers to be paid. Supplier prices, supplier statements, supplier payments and gross margin against coal cost are removed from scope. If the business pays subcontracted trucks or other per-trip costs, that becomes a later "costs" module (Q6), also on delivered weight (Q3).
+- **Drivers do not log in.** Office staff upload both slips. Drivers and trucks are records used to identify trips; the driver portal, driver accounts and driver notifications are removed from scope. (Q12)
+- **Roles:** Admin and Finance only.
+
+What stays the same: two slips per trip, automatic pairing by collection ticket number (§5), AI-assisted reading with human verification (§8), weights in kg with `numeric` maths, versioned prices, immutable issued invoices, credit notes, payments, VAT tick box, audit log.
+
+Simplified flow:
+
+```
+Office uploads collection slip ─┐
+                                ├─► AI reads both ─► staff verify ─► paired into one trip (delivery)
+Office uploads destination slip ┘                                         │
+                                                                          ▼
+                                    approve (weights locked) ─► invoice to customer at rate on invoice date
+```
 
 ---
 
@@ -288,18 +312,17 @@ What this changes in the design:
 
 ## 9. Roles and access (enforced by RLS)
 
-| Area | Admin | Finance | Driver |
-| --- | --- | --- | --- |
-| Master data (customers, suppliers, products, trucks, drivers) | Full | Read | Own driver & truck only |
-| Prices | Full | Read | None |
-| Deliveries | Full | Read | Own deliveries only, operational columns |
-| Slip files / verification | Full | Read | Upload & view own; no edit after upload |
-| Reconciliation / adjustments | Full | Read | None |
-| Approve deliveries | Yes | Q14 | No |
-| Valuations, invoices, credit notes, payments | Full | Full | None |
-| Supplier statements & payments | Full | Full | None |
-| Reports & dashboard | All | All | Own delivery history only |
-| Users | Full | None | None |
+Revised (§0): drivers have no accounts, so there are two roles.
+
+| Area | Admin | Finance |
+| --- | --- | --- |
+| Master data (customers, collection/destination sites, products, trucks, drivers) | Full | Read |
+| Prices (haulage rates) | Full | Read |
+| Deliveries, slip upload & verification | Full | Read |
+| Approve deliveries | Yes | Q14 |
+| Invoices, credit notes, payments | Full | Full |
+| Reports & dashboard | All | All |
+| Users | Full | None |
 
 ---
 
@@ -313,9 +336,12 @@ What this changes in the design:
 | Q7 | Weight loss in transit is not the business's concern: difference is displayed only, never blocks or deducts |
 | Q8 | VAT optional: "VAT registered" tick box in company settings drives whether VAT is calculated and shown |
 | Q13 | Admin creates deliveries |
+| Q3 (other side) | Any payable side also uses **delivered** weight |
+| Q12 | Drivers don't log in; office staff upload the slips |
+| Q21 | The business is a **transporter paid per ton** to haul coal; no coal purchase side |
 | — | Single company (one business using the system) for now |
 
-Still open from these answers: supplier weight basis (Q3), driver accounts (Q12). Q17 answered with 5 sample photos (§8.1).
+Q17 answered with 5 sample photos (§8.1). Still open: Q22 (rate per route?), Q23 (PO on invoices?), Q6 (subcontracted trucks or other costs to track?).
 
 ## 11. Unresolved business questions
 
@@ -364,13 +390,13 @@ Each phase ends with a test gate before the next starts.
 
 | Phase | Deliverables | Test gate |
 | --- | --- | --- |
-| **1. Audit & architecture** | This document | Your approval + answers to blocking questions (Q1, Q3, Q4, Q7, Q8, Q12, Q13) |
-| **2. Core infrastructure** | New repo; Supabase project & CLI migrations; auth & roles; RLS; company settings; customers/sites, suppliers/sites, coal products, drivers, trucks; pricing with effective dates & overlap constraint; audit triggers | RLS tests per role (pgTAP); price-overlap and history tests; CRUD screens checked on mobile |
-| **3. Delivery management** | Delivery creation & assignment; numbering; driver portal (mobile-first); slip upload to private storage; status function; notifications | Driver can only see/upload own deliveries; file access only via signed URLs; status transitions unit-tested |
+| **1. Audit & architecture** | This document | Your approval + answers to Q22 (rate per route?) and Q23 (PO on invoices?) |
+| **2. Core infrastructure** | New repo; Supabase project & CLI migrations; auth & roles; RLS; company settings; customers, collection & destination sites, routes, coal products with weighbridge aliases, drivers, trucks; haulage rates with effective dates & overlap constraint; audit triggers | RLS tests per role (pgTAP); price-overlap and history tests; CRUD screens checked on mobile |
+| **3. Delivery management** | Delivery creation; numbering; office slip upload (single and batch) to private storage; pairing by collection ticket number; status function | File access only via signed URLs; pairing and status transitions unit-tested |
 | **4. AI extraction** | Extraction worker; schema & validation; review screen; verification; duplicate ticket/file detection; manual-capture fallback | Run against your real sample slips, measure field accuracy; blurry/missing-net cases go to review |
-| **5. Reconciliation & calculations** | Reconciliation; tolerances; investigations & adjustments; `approve_delivery`; valuation snapshots; overrides; corrections | Calculation test suite incl. brief example (R46,400 / R36,300 / R10,100), rounding edge cases, missing price, price change after approval |
-| **6. Invoicing** | Grouped customer invoices; gap-free numbering; VAT; PDF; credit notes; payments & allocations; supplier statements, captured supplier invoices, supplier payments | Double-invoicing blocked; issued invoice immutable; credit note flow; PDF totals equal DB totals |
-| **7. Dashboard & reports** | Dashboard KPIs with date filter; daily/weekly/monthly delivery, reconciliation, customer/supplier statements, outstanding, supplier payments, gross margin; Excel & PDF export | Report totals cross-checked against underlying records |
-| **8. Testing & production** | End-to-end tests (Playwright), security review, backups, monitoring, production Supabase, deployment, user guides for drivers and admins | Pilot with real deliveries alongside the current manual process for 2–4 weeks |
+| **5. Reconciliation & calculations** | Weight difference display; `approve_delivery` (weights locked); rate lookup at invoice date; overrides; corrections | Calculation tests using the sample trips (34,660 kg and 34,920 kg delivered), rounding edge cases, missing rate, rate change before/after issue |
+| **6. Invoicing** | Grouped customer invoices; gap-free numbering; VAT; PDF; credit notes; payments & allocations | Double-invoicing blocked; issued invoice immutable; credit note flow; PDF totals equal DB totals |
+| **7. Dashboard & reports** | Dashboard KPIs with date filter; daily/weekly/monthly delivery, reconciliation, customer statements, outstanding invoices, revenue per route/customer; Excel & PDF export | Report totals cross-checked against underlying records |
+| **8. Testing & production** | End-to-end tests (Playwright), security review, backups, monitoring, production Supabase, deployment, user guide for office staff | Pilot with real deliveries alongside the current manual process for 2–4 weeks |
 
-**Next step:** confirm Q1 and answer the blocking questions; Phase 2 can start as soon as Q1, Q3, Q4 and Q12 are settled, since master data and pricing tables don't depend on the rest.
+**Next step:** answer Q22 and Q23, then Phase 2 starts.
