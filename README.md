@@ -39,7 +39,7 @@ npm run dev                  # http://localhost:3000
 
 | Phase | Status |
 | --- | --- |
-| 1. Audit & architecture | Revision 2 (transporter model); awaiting Q22, Q23 |
+| 1. Audit & architecture | Revision 2 (transporter model); awaiting Q23 |
 | 2. Core infrastructure | Not started |
 | 3. Delivery management | Not started |
 | 4. AI extraction | Not started |

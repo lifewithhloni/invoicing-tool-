@@ -11,6 +11,7 @@ Answers received on 2 November 2026 change the business model this document was 
 
 - **What the business does:** it hauls coal and is **paid per ton** by its customer (e.g. Exxaro). It does not buy or sell coal. (Q21)
 - **Revenue:** `delivered net tons × agreed haulage rate per ton`, using the rate in force on the invoice date. (Q3, Q4)
+- **One rate per customer.** The rate does not vary by route or coal product, only over time (effective dates). Price lookup is customer + invoice date. (Q22)
 - **No coal supplier side in the first version.** The mines and weighbridges (Grootegeluk, Exxaro Reductants…) are **collection sites**, not suppliers to be paid. Supplier prices, supplier statements, supplier payments and gross margin against coal cost are removed from scope. If the business pays subcontracted trucks or other per-trip costs, that becomes a later "costs" module (Q6), also on delivered weight (Q3).
 - **Drivers do not log in.** Office staff upload both slips. Drivers and trucks are records used to identify trips; the driver portal, driver accounts and driver notifications are removed from scope. (Q12)
 - **Roles:** Admin and Finance only.
@@ -339,9 +340,10 @@ Revised (§0): drivers have no accounts, so there are two roles.
 | Q3 (other side) | Any payable side also uses **delivered** weight |
 | Q12 | Drivers don't log in; office staff upload the slips |
 | Q21 | The business is a **transporter paid per ton** to haul coal; no coal purchase side |
+| Q22 | **One rate per customer**, versioned by effective date — not per route or product |
 | — | Single company (one business using the system) for now |
 
-Q17 answered with 5 sample photos (§8.1). Still open: Q22 (rate per route?), Q23 (PO on invoices?), Q6 (subcontracted trucks or other costs to track?).
+Q17 answered with 5 sample photos (§8.1). Still open: Q23 (PO on invoices?), Q6 (subcontracted trucks or other costs to track?).
 
 ## 11. Unresolved business questions
 
@@ -390,8 +392,8 @@ Each phase ends with a test gate before the next starts.
 
 | Phase | Deliverables | Test gate |
 | --- | --- | --- |
-| **1. Audit & architecture** | This document | Your approval + answers to Q22 (rate per route?) and Q23 (PO on invoices?) |
-| **2. Core infrastructure** | New repo; Supabase project & CLI migrations; auth & roles; RLS; company settings; customers, collection & destination sites, routes, coal products with weighbridge aliases, drivers, trucks; haulage rates with effective dates & overlap constraint; audit triggers | RLS tests per role (pgTAP); price-overlap and history tests; CRUD screens checked on mobile |
+| **1. Audit & architecture** | This document | Your approval + answer to Q23 (PO on invoices?) |
+| **2. Core infrastructure** | New repo; Supabase project & CLI migrations; auth & roles; RLS; company settings; customers, collection & destination sites, coal products with weighbridge aliases, drivers, trucks; one haulage rate per customer with effective dates & overlap constraint; audit triggers | RLS tests per role (pgTAP); price-overlap and history tests; CRUD screens checked on mobile |
 | **3. Delivery management** | Delivery creation; numbering; office slip upload (single and batch) to private storage; pairing by collection ticket number; status function | File access only via signed URLs; pairing and status transitions unit-tested |
 | **4. AI extraction** | Extraction worker; schema & validation; review screen; verification; duplicate ticket/file detection; manual-capture fallback | Run against your real sample slips, measure field accuracy; blurry/missing-net cases go to review |
 | **5. Reconciliation & calculations** | Weight difference display; `approve_delivery` (weights locked); rate lookup at invoice date; overrides; corrections | Calculation tests using the sample trips (34,660 kg and 34,920 kg delivered), rounding edge cases, missing rate, rate change before/after issue |
@@ -399,4 +401,4 @@ Each phase ends with a test gate before the next starts.
 | **7. Dashboard & reports** | Dashboard KPIs with date filter; daily/weekly/monthly delivery, reconciliation, customer statements, outstanding invoices, revenue per route/customer; Excel & PDF export | Report totals cross-checked against underlying records |
 | **8. Testing & production** | End-to-end tests (Playwright), security review, backups, monitoring, production Supabase, deployment, user guide for office staff | Pilot with real deliveries alongside the current manual process for 2–4 weeks |
 
-**Next step:** answer Q22 and Q23, then Phase 2 starts.
+**Next step:** answer Q23, then Phase 2 starts.
