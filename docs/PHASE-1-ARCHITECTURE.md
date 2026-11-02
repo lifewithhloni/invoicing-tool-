@@ -1,6 +1,6 @@
 # Coal Delivery, Reconciliation & Invoicing System — Phase 1: Audit & Architecture
 
-Status: **Proposal (revision 2) — awaiting approval.**
+Status: **Proposal (revision 2) — all blocking questions answered; awaiting approval.**
 Date: 2 November 2026
 
 ---
@@ -61,6 +61,8 @@ What it confirms:
 - Payment reference = `INV-` + `n` padded to at least 2 digits + `MMYYYY` → `INV-05102026`.
 - The last six digits are always month and year, so numbers never collide or become ambiguous.
 - `n` comes from the gap-free `document_sequences` row, allocated only when an invoice is **issued** (drafts have no number). The starting value is set once at go-live (next after the last spreadsheet invoice — 6 if 5102026 was the last).
+
+**Decided (Q27): invoice lines stay as they are** — Description (collection site), Rate, Tons, Total. Each line is still linked in the database to its delivery and both weigh tickets, so any line can be traced on screen and in reports; that detail just isn't printed on the PDF.
 
 **Rounding finding:** the seven rounded lines add up to **R159,631.68**, but the subtotal shows **R159,631.67**. The spreadsheet calculates the subtotal as total tons (244.74) × R652.25 = 159,631.665 → .67, rather than adding the lines. **Decided (Q24):** the subtotal is the **sum of the rounded lines**, so every invoice adds up. On this example the new system would show R159,631.68 (one cent more than the spreadsheet).
 
@@ -389,6 +391,7 @@ Revised (§0): drivers have no accounts, so there are two roles.
 | Q12 | Drivers don't log in; office staff upload the slips |
 | Q21 | The business is a **transporter paid per ton** to haul coal; no coal purchase side |
 | Q22 | **One rate per customer**, versioned by effective date — not per route or product |
+| Q27 | Invoice lines printed as today: collection site, rate, tons, total (delivery link kept internally) |
 | Q26 | Invoice number `{n}{MM}{YYYY}`, running number never restarts; reference `INV-{nn}{MM}{YYYY}` |
 | Q25 | Diesel deduction is a **fixed monthly amount** per customer, versioned by effective date and pre-filled on each monthly invoice |
 | Q24 | Subtotal = **sum of rounded lines** (each line `round(tons × rate, 2)` half-up) |
@@ -396,7 +399,7 @@ Revised (§0): drivers have no accounts, so there are two roles.
 | — | Business = Arete Conglomerate; customer = PBSA Logistics; current rate R652.25/t; no VAT (§0.1) |
 | — | Single company (one business using the system) for now |
 
-Q17 answered with 5 sample photos (§8.1). Still open: Q27 (trip date and ticket on invoice lines?), Q6 (other costs to track?).
+Q17 answered with 5 sample photos (§8.1). All blocking questions are answered. Q6 (other costs to track) can wait until after the first version., Q6 (other costs to track?).
 
 ## 11. Unresolved business questions
 
@@ -451,7 +454,7 @@ Each phase ends with a test gate before the next starts.
 
 | Phase | Deliverables | Test gate |
 | --- | --- | --- |
-| **1. Audit & architecture** | This document | Your approval + answer to Q27 |
+| **1. Audit & architecture** | This document | Your approval |
 | **2. Core infrastructure** | New repo; Supabase project & CLI migrations; auth & roles; RLS; company settings; customers, collection & destination sites, coal products with weighbridge aliases, drivers, trucks; one haulage rate per customer with effective dates & overlap constraint; audit triggers | RLS tests per role (pgTAP); price-overlap and history tests; CRUD screens checked on mobile |
 | **3. Delivery management** | Delivery creation; numbering; office slip upload (single and batch) to private storage; pairing by collection ticket number; status function | File access only via signed URLs; pairing and status transitions unit-tested |
 | **4. AI extraction** | Extraction worker; schema & validation; review screen; verification; duplicate ticket/file detection; manual-capture fallback | Run against your real sample slips, measure field accuracy; blurry/missing-net cases go to review |
@@ -460,4 +463,4 @@ Each phase ends with a test gate before the next starts.
 | **7. Dashboard & reports** | Dashboard KPIs with date filter; daily/weekly/monthly delivery, reconciliation, customer statements, outstanding invoices, revenue per route/customer; Excel & PDF export | Report totals cross-checked against underlying records |
 | **8. Testing & production** | End-to-end tests (Playwright), security review, backups, monitoring, production Supabase, deployment, user guide for office staff | Pilot with real deliveries alongside the current manual process for 2–4 weeks |
 
-**Next step:** answer Q27, then Phase 2 starts. (Phase 2 tables don't depend on Q27, so it can start in parallel if you approve the design.)
+**Next step:** approve this design, then Phase 2 starts.
