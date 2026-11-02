@@ -16,6 +16,41 @@ Answers received on 2 November 2026 change the business model this document was 
 - **Drivers do not log in.** Office staff upload both slips. Drivers and trucks are records used to identify trips; the driver portal, driver accounts and driver notifications are removed from scope. (Q12)
 - **Roles:** Admin and Finance only.
 
+### 0.1 The current invoice (photo of their spreadsheet template, received 2 Nov 2026)
+
+This settles who is who:
+
+- **The business (issuer):** Arete Conglomerate, "in partnership with MMET Projects", Seleka, Lephalale.
+- **The customer:** **PBSA Logistics and Consultants (Pty) Ltd**, the transport company named on every weigh ticket. Arete hauls as a subcontractor to PBSA, which hauls for Exxaro. So the "customer" in this system is PBSA, not Exxaro.
+
+Layout of invoice 5102026 (issued 31/10/2026, due 30/11/2026):
+
+| Description | Rate (R/ton) | Tons | Total (R) |
+| --- | --- | --- | --- |
+| Grootegeluk Reductant | 652.25 | 34.58 | 22,554.81 |
+| Grootegeluk | 652.25 | 34.66 | 22,606.99 |
+| Grootegeluk Reductant | 652.25 | 34.92 | 22,776.57 |
+| Palabora Mining Company | 652.25 | 34.80 | 22,698.30 |
+| Palabora Mining Company | 652.25 | 35.40 | 23,089.65 |
+| Grootegeluk | 652.25 | 35.32 | 23,037.47 |
+| Grootegeluk Reductant | 652.25 | 35.06 | 22,867.89 |
+| **Subtotal** | | | **159,631.67** |
+| Monthly diesel deduction | | | −59,000.00 |
+| **Total amount payable** | | | **100,631.67** |
+
+Then payment info (bank, account, branch code, reference `INV-05102026`). Bank details belong in company settings in the database, never in this repository.
+
+What it confirms:
+
+- **One rate per customer** (R652.25 on every line) and **delivered weight**: 34.66 t and 34.92 t are exactly the delivered weights on the Rustenburg and Mmamoso sample slips (§8.1).
+- **One invoice per month** containing all trips. **Description = collection site** name.
+- Tons are shown to **2 decimals** (34,580 kg → 34.58 t). Each line is `tons × rate`, rounded half-up to the cent. All seven lines check out exactly.
+- **No VAT** on the invoice, so the "VAT registered" tick box (Q8) starts unticked.
+- **No PO number** on the invoice, which answers Q23 (no PO).
+- **Deductions exist:** a "monthly diesel deduction" is subtracted after the subtotal. Invoices therefore need **deduction lines** (description + amount) between subtotal and total payable.
+
+**Rounding finding:** the seven rounded lines add up to **R159,631.68**, but the subtotal shows **R159,631.67**. The spreadsheet calculates the subtotal as total tons (244.74) × R652.25 = 159,631.665 → .67, rather than adding the lines. The new system has to pick one rule — see Q24.
+
 What stays the same: two slips per trip, automatic pairing by collection ticket number (§5), AI-assisted reading with human verification (§8), weights in kg with `numeric` maths, versioned prices, immutable issued invoices, credit notes, payments, VAT tick box, audit log.
 
 Simplified flow:
@@ -341,15 +376,23 @@ Revised (§0): drivers have no accounts, so there are two roles.
 | Q12 | Drivers don't log in; office staff upload the slips |
 | Q21 | The business is a **transporter paid per ton** to haul coal; no coal purchase side |
 | Q22 | **One rate per customer**, versioned by effective date — not per route or product |
+| Q23 | No PO on invoices; one invoice per customer per month (from the current template, §0.1) |
+| — | Business = Arete Conglomerate; customer = PBSA Logistics; current rate R652.25/t; no VAT (§0.1) |
 | — | Single company (one business using the system) for now |
 
-Q17 answered with 5 sample photos (§8.1). Still open: Q23 (PO on invoices?), Q6 (subcontracted trucks or other costs to track?).
+Q17 answered with 5 sample photos (§8.1). Still open: Q24–Q27 (raised by the current invoice), Q6 (other costs to track?).
 
 ## 11. Unresolved business questions
 
 These need answers before the related part is built. Nothing below will be assumed.
 
-**Raised by the sample slips (most important)**
+**Raised by the current invoice (§0.1)**
+- **Q24. Rounding.** Lines add up to R159,631.68 but the subtotal shows R159,631.67. Should the subtotal be the **sum of the lines** (recommended: the invoice always adds up), or **total tons × rate** (matches the spreadsheet, but can be a cent off the lines)?
+- **Q25. Diesel deduction.** Where does the R59,000 come from: a fixed monthly amount agreed with PBSA, or a statement from PBSA of diesel actually drawn? Are there other deduction types (tolls, fines, advances)?
+- **Q26. Invoice numbering.** Is `5102026` = invoice **5**, month **10**, year **2026** (reference `INV-05102026`)? Does the running number continue across months, or restart each month?
+- **Q27. Trip details on the invoice.** Lines currently show only the collection site. Keep exactly that, or add **date** and **ticket number** columns so PBSA can match each line to a weigh ticket?
+
+**Raised by the sample slips**
 - **Q21. Who is the business?** Every slip names **PBSA Logistics** as the transport company, and the purchase orders contain "PBSA" (`G2RPBSA202610`, `G2MSPBSA202610`). Is the business using this system PBSA Logistics, paid by Exxaro per ton to haul coal? If so, there may be **no coal supplier to pay** — the "supplier side" would instead be things like subcontracted trucks — and the main customer is Exxaro. Or does the business buy coal from Grootegeluk and sell it on?
 - **Q22. Price per route?** The samples show two routes (Grootegeluk → Rustenburg Depot, Grootegeluk Reductant → Mmamoso Siding). Is the rate per ton set per **route** (origin → destination), per product, or both?
 - **Q23. Purchase orders.** Must each invoice quote the PO number (one PO per route per month, judging by `…202610`)? Should invoices be grouped per PO?
@@ -392,7 +435,7 @@ Each phase ends with a test gate before the next starts.
 
 | Phase | Deliverables | Test gate |
 | --- | --- | --- |
-| **1. Audit & architecture** | This document | Your approval + answer to Q23 (PO on invoices?) |
+| **1. Audit & architecture** | This document | Your approval + answers to Q24–Q27 |
 | **2. Core infrastructure** | New repo; Supabase project & CLI migrations; auth & roles; RLS; company settings; customers, collection & destination sites, coal products with weighbridge aliases, drivers, trucks; one haulage rate per customer with effective dates & overlap constraint; audit triggers | RLS tests per role (pgTAP); price-overlap and history tests; CRUD screens checked on mobile |
 | **3. Delivery management** | Delivery creation; numbering; office slip upload (single and batch) to private storage; pairing by collection ticket number; status function | File access only via signed URLs; pairing and status transitions unit-tested |
 | **4. AI extraction** | Extraction worker; schema & validation; review screen; verification; duplicate ticket/file detection; manual-capture fallback | Run against your real sample slips, measure field accuracy; blurry/missing-net cases go to review |
@@ -401,4 +444,4 @@ Each phase ends with a test gate before the next starts.
 | **7. Dashboard & reports** | Dashboard KPIs with date filter; daily/weekly/monthly delivery, reconciliation, customer statements, outstanding invoices, revenue per route/customer; Excel & PDF export | Report totals cross-checked against underlying records |
 | **8. Testing & production** | End-to-end tests (Playwright), security review, backups, monitoring, production Supabase, deployment, user guide for office staff | Pilot with real deliveries alongside the current manual process for 2–4 weeks |
 
-**Next step:** answer Q23, then Phase 2 starts.
+**Next step:** answer Q24–Q27, then Phase 2 starts. (Phase 2 tables don't depend on Q24–Q27, so it can start in parallel if you approve the design.)
