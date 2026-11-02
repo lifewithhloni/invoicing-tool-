@@ -65,7 +65,7 @@ Date: 2 November 2026
 1. **Facts, decisions and money are separate records.** Uploaded files → AI suggestions → human-verified slip data → reconciliation → approved financial snapshot → invoice. Each layer is its own table; later layers reference earlier ones and never overwrite them.
 2. **The `deliveries` table contains no money.** All prices and amounts live in tables drivers have no RLS access to, so driver isolation from financials is structural, not cosmetic.
 3. **Approval freezes the numbers.** When a delivery is approved, the rate, price-record ID, billing weight and amounts are copied into an immutable *valuation* row. Later price changes cannot affect it.
-4. **Nothing is guessed.** No price found → approval is blocked with a clear message. No net weight and no gross/tare pair → slip can't be verified. Unconfirmed business rules are configuration with no default (see §10).
+4. **Nothing is guessed.** No price found → approval is blocked with a clear message. No net weight and no gross/tare pair → slip can't be verified. Unconfirmed business rules are configuration with no default (see §11).
 5. **Corrections are new records, never edits.** A wrong approved delivery gets a new valuation version with a reason; a wrong issued invoice gets a credit note. Database triggers reject `UPDATE`/`DELETE` on locked rows.
 
 ---
@@ -79,16 +79,16 @@ Conventions: `uuid` primary keys; `created_at`, `created_by` on every table; wei
 | Table | Key columns |
 | --- | --- |
 | `profiles` | `id` → `auth.users`, `full_name`, `phone`, `role` (`admin` \| `finance` \| `driver`), `is_active` |
-| `company_settings` (single row) | Legal name, reg no, VAT no, addresses, bank details, logo path, `vat_registered`, `default_vat_rate`, `default_payment_terms_days`, `default_discrepancy_tolerance_pct` (nullable until confirmed) |
+| `company_settings` (single row) | Legal name, reg no, VAT no, addresses, bank details, logo path, `vat_registered`, `default_vat_rate`, `default_payment_terms_days`, `weight_difference_highlight_pct` (optional, display only) |
 | `document_sequences` | `name` (`delivery`, `invoice`, `credit_note`, `supplier_statement`), `prefix`, `next_value` — row-locked in a transaction, so numbers are gap-free and unique |
 
 ### 4.2 Master data
 
 | Table | Key columns |
 | --- | --- |
-| `customers` | name, reg no, VAT no, billing address, contacts, `payment_terms_days`, `discrepancy_tolerance_pct` (override), `is_active` |
+| `customers` | name, reg no, VAT no, billing address, contacts, `payment_terms_days`, `is_active` |
 | `customer_sites` | `customer_id`, name, address — the actual destinations/plants |
-| `suppliers` | name, reg no, VAT no, contacts, `discrepancy_tolerance_pct`, `settlement_document_type` (`supplier_invoice_captured` \| `statement_only` \| `recipient_created_invoice`) |
+| `suppliers` | name, reg no, VAT no, contacts, `settlement_document_type` (`supplier_invoice_captured` \| `statement_only` \| `recipient_created_invoice`) |
 | `supplier_sites` | `supplier_id`, name — mines / collection points / weighbridges |
 | `coal_products` | code, name, grade/size (e.g. "RB1", "Duff", "Peas"), `is_active` |
 | `drivers` | `profile_id` (nullable until login created), full name, phone, ID/licence no, `is_active` |
@@ -124,8 +124,7 @@ Integrity rules:
 
 | Table | Key columns |
 | --- | --- |
-| `weight_reconciliations` | `delivery_id`, collected `net_kg`, delivered `net_kg`, `difference_kg` (collected − delivered), `difference_pct`, `tolerance_pct_applied`, `result` (`within_tolerance` \| `discrepancy`), `status` (`open` \| `investigating` \| `resolved`), `resolution` (`accepted_as_weighed` \| `adjusted` \| `reweighed`), notes, `resolved_by` |
-| `weight_adjustments` | `delivery_id`, `applies_to` (`customer` \| `supplier`), `original_kg`, `adjusted_kg`, `reason`, evidence file, `requested_by`, `approved_by`, `approved_at` |
+| `weight_reconciliations` | `delivery_id`, collected `net_kg`, delivered `net_kg`, `difference_kg` (collected − delivered), `difference_pct`, `highlighted` (display only) — recalculated whenever a slip verification changes |
 
 ### 4.6 Financial snapshot
 
@@ -160,7 +159,7 @@ Immutable after insert (trigger). A correction inserts version *n+1* and marks t
 | Table | Purpose |
 | --- | --- |
 | `audit_log` | Written by triggers on every financial, pricing, slip-verification and status table: table, record ID, action, old/new `jsonb`, actor, timestamp, reason |
-| `delivery_events` | Human-readable timeline per delivery (uploaded, verified, discrepancy, approved, invoiced…) |
+| `delivery_events` | Human-readable timeline per delivery (uploaded, verified, approved, invoiced…) |
 | `notifications` | `user_id`, `delivery_id`, type (`slip_missing`, `slip_rejected`…), message, `read_at` |
 
 ---
@@ -175,6 +174,8 @@ Immutable after insert (trigger). A correction inserts version *n+1* and marks t
 
 **Secondary flow — unplanned trip:** if the driver has no assigned delivery, they can tap **New trip**, choose the truck and upload the collection slip. This creates a delivery in `assigned` status with supplier/customer left blank for an admin to complete. (Only if you want this — Q13.)
 
+**Automatic pairing from the slips themselves (found in the sample slips, §8.1):** the destination slip records the collection ticket number — Rustenburg Depot as *External Ref*, Mmamoso as *Order No*. So when slips arrive without a delivery (e.g. office staff upload a batch), the system proposes the pairing: *destination ticket's reference = collection ticket number* **and** same truck registration. An admin confirms the pairing; it's never silently applied.
+
 **Cross-checks after extraction (warnings, never automatic changes):**
 - Truck registration on the slip ≠ delivery truck.
 - Delivery slip date earlier than collection slip date, or gap longer than a configurable number of hours.
@@ -188,9 +189,8 @@ Immutable after insert (trigger). A correction inserts version *n+1* and marks t
 ```
 assigned ──► awaiting_collection_slip ──► awaiting_delivery_slip ──► awaiting_verification
                                                                          │
-                                       ┌──── discrepancy_detected ◄──────┤ (outside tolerance)
-                                       ▼                                 ▼
-                                   (resolved) ─────────────────────► approved ──► invoiced ──► completed
+                                                                         ▼
+                                                    approved ──► invoiced ──► completed
 Any open state ──► cancelled (with reason)
 ```
 
@@ -202,17 +202,24 @@ Any open state ──► cancelled (with reason)
 
 ## 6. How pricing works
 
-At approval, `approve_delivery(delivery_id)` runs in one transaction:
+> **Revised after Q3/Q4 answers:** customers are billed on **delivered** net weight, and the price is the one in force on the **invoice date** (defaults to the issue date, editable before issue). So pricing happens at invoicing, not at delivery approval.
 
-1. **Find the customer price**: row matching customer + coal product + (site, else all-sites row) whose date range contains the *pricing date* (Q4). Exactly one row must match — the exclusion constraint guarantees no overlaps; none → approval blocked: *"No customer price for ABC Mining / RB1 on 14 Nov 2026."*
-2. **Find the supplier price** the same way.
-3. **Choose billing weights** from each price row's `billing_weight_basis`, using verified slip weights or an approved `weight_adjustment` if one exists.
-4. **Calculate**: `amount = round(billing_kg / 1000 × rate_per_ton, 2)` (half-up).
-5. **Insert the valuation snapshot** with the price row IDs, rates, weights, amounts and margin.
+**At delivery approval** — `approve_delivery(delivery_id)` locks the *weights only*: it records the verified collected and delivered net weights and the billing weight for each side. No rate is applied yet.
 
-Manual override: an admin can enter a different rate with a mandatory reason. The valuation records `rate_override = true`, the reason, and the price row it would otherwise have used. It's audited and visible on reports.
+**At invoicing** — when Finance drafts an invoice for a customer and billing period:
 
-**Worked example (from the brief), assuming customer basis = delivered, supplier basis = collected:**
+1. Pick approved, un-invoiced deliveries; set the **invoice date** (default today, editable while the invoice is a draft — every change is audited).
+2. **Find the customer price** for each line: row matching customer + coal product + (site, else all-sites row) whose date range contains the invoice date. Exactly one row must match (the exclusion constraint guarantees no overlaps); none → the draft cannot be issued: *"No customer price for ABC Mining / RB1 on 14 Nov 2026."*
+3. **Calculate** each line: `amount = round(delivered_kg / 1000 × rate_per_ton, 2)` (half-up).
+4. **On issue**, the invoice number is allocated and the rate, price-row ID, weight and amount are frozen on each line (the valuation snapshot). Later price changes can't affect it.
+
+**Supplier side** works the same way at the supplier statement / settlement date, using the supplier price in force on that date (supplier weight basis to be confirmed — see §11).
+
+Until a delivery is invoiced, the dashboard shows its revenue and margin as an **estimate at today's prices**, clearly labelled.
+
+Manual override: a different rate can be entered on a draft line with a mandatory reason. The line records `rate_override = true`, the reason, and the price row it would otherwise have used. It's audited and visible on reports.
+
+**Worked example (from the brief), customer basis = delivered (confirmed), supplier basis = collected (to be confirmed):**
 
 | | Weight | Rate | Amount |
 | --- | --- | --- | --- |
@@ -220,9 +227,7 @@ Manual override: an admin can enter a different rate with a mandatory reason. Th
 | Supplier — XYZ Coal | 33,000 kg = 33.000 t | R1,100.00 | **R36,300.00** |
 | Gross margin | | | **R10,100.00** |
 
-These basis choices are not assumed in the system — they are set per price row once you confirm them (Q3).
-
-**VAT** is calculated at invoice level: `vat = round(subtotal × vat_rate, 2)`, using the rate stored on `company_settings` at issue time and copied onto the invoice. (Q8 confirms VAT status and whether prices are VAT-exclusive.)
+**VAT** is optional: a **"VAT registered"** tick box in company settings. When ticked, invoices add `vat = round(subtotal × vat_rate, 2)` (rate from settings, copied onto the invoice at issue) and show the VAT number; when unticked, no VAT is charged or shown. Agreed prices are treated as VAT-exclusive (to confirm).
 
 ---
 
@@ -232,14 +237,12 @@ When both slips for a delivery are verified, a reconciliation row is calculated:
 
 - `difference_kg = collected_net_kg − delivered_net_kg` (positive = less arrived than left; negative = more arrived)
 - `difference_pct = difference_kg / collected_net_kg × 100`, stored to 2 decimals → 33 t vs 32 t = **3.03 %**
-- Tolerance: customer override → supplier override → company default. If **no tolerance is configured, every non-zero difference is flagged** (nothing is silently accepted).
-- Within tolerance → `within_tolerance`, delivery can go to approval.
-- Outside tolerance (either direction) → `discrepancy_detected`. Approval is blocked until an admin resolves it as:
-  - **Accepted as weighed** — bill per the configured basis, with a note;
-  - **Adjusted** — record a `weight_adjustment` (who, why, evidence) for the customer and/or supplier side;
-  - **Re-weighed** — replace a slip with a new verified one.
+> **Revised after Q7 answer:** in-transit weight loss is not the business's problem — customers are billed on what was delivered, as weighed.
 
-A discrepancy never deducts money by itself. The flag means *look at this*; any change to billed weight is a separate, approved, audited record.
+- The difference and percentage are **shown** on every delivery and in the weight reconciliation report, for information.
+- An optional "highlight above X %" setting can mark large differences visually (off by default). It **never blocks approval** and never changes amounts.
+- If a slip itself is wrong (misread or wrong ticket), it is corrected by re-verifying or replacing the slip, which is audited.
+- The `weight_adjustments` table and the `discrepancy_detected` status are dropped from the first version; they can be added later if the business needs them.
 
 ---
 
@@ -252,6 +255,34 @@ A discrepancy never deducts money by itself. The flag means *look at this*; any 
 5. Admin reviews side-by-side (original document left, editable fields right, AI value and confidence per field), corrects, and clicks **Verify**. Only `slip_verifications` rows feed calculations; the AI output is kept for audit.
 
 The AI never verifies a slip, approves a delivery or produces an invoice amount. If the AI service is down, uploads still work and admins capture fields manually.
+
+### 8.1 What the sample slips show (5 photos received 2 Nov 2026)
+
+| Photo | Weighbridge | Ticket | Date | Truck | Route / product | Tare / Gross / Net (kg) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | Exxaro Reductants (collection) | 1156085 | 2026-10-05 | LT48JRGP | Grootegeluk Reductant → Mmamoso Siding, GG-SSCC MET / RB1 | 20,900 / 55,650 / 34,750 |
+| 2 left, 3 | Exxaro Reductants (collection) | 1156956 | 2026-10-11 | LT48JRGP | Grootegeluk Reductant → Mmamoso Siding, GG-SSCC MET / RB1 | 20,950 / 56,000 / 35,050 |
+| 2 right | Mmamoso Holdings (destination) | T69979.2, Order No **1156956** | 2026-10-11 | LT48JRGP | RB1 | 20,820 / 55,740 / **34,920** |
+| 4 | Exxaro Rustenburg Depot (destination) | 21080787, External Ref **32592547** | 2026-10-08 | LT48JRGP | "COAL", Receiving Goods | 20,820 / 55,480 / **34,660** |
+| 5 | Grootegeluk Mine (collection) | 32592547 | 2026-10-07 | LT48JRGP | Grootegeluk → Rustenburg Depot, GG-Peas | 21,050 / 55,700 / 34,650 |
+
+Resulting trips:
+
+| Trip | Collected | Delivered | Difference |
+| --- | --- | --- | --- |
+| 32592547 → 21080787 (Rustenburg) | 34,650 kg | 34,660 kg | −10 kg (−0.03 %, more arrived) |
+| 1156956 → T69979.2 (Mmamoso) | 35,050 kg | 34,920 kg | 130 kg (0.37 %) |
+| 1156085 → — | 34,750 kg | no destination slip yet | — |
+
+What this changes in the design:
+
+- **Pairing key:** destination slips quote the collection ticket number, so pairing is reliable (§5).
+- **Two layouts already:** Exxaro prints *Tare / Gross / Nett* with no unit; Mmamoso prints *First / Second / Total Weight* in kg. Extraction must handle "first/second" (either could be tare) — net is always the positive difference.
+- **Duplicates are real:** photos 2 and 3 are the same ticket 1156956, which duplicate-ticket detection must catch.
+- **Product names differ per weighbridge** for the same load ("GG - Peas" vs "COAL"; "GG - SSCC MET" + stockpile "RB1" vs "RB1"). Coal products need **aliases** per weighbridge, mapped once by an admin.
+- **Extra fields worth capturing:** trailer registrations, transport company, purchase order number (e.g. `G2RPBSA202610`), seal numbers, stockpile ref, date/time in and out.
+- **Driver is first name only** ("ENOS"), so the truck registration — not the driver name — is the reliable identifier.
+- **Photo quality:** rotated images, low light, a stamp over text, and a partly cut-off ticket are all present. Rotation is fine; a stamp or crop over a weight field must go to manual review.
 
 ---
 
@@ -272,9 +303,28 @@ The AI never verifies a slip, approves a delivery or produces an invoice amount.
 
 ---
 
-## 10. Unresolved business questions
+## 10. Decisions so far (2 November 2026)
+
+| # | Decision |
+| --- | --- |
+| Q1 | Separate repository: `lifewithhloni/invoicing-tool-` |
+| Q3 | Customers billed on **delivered** net weight |
+| Q4 | Price = the one in force on the **invoice date**; invoice date defaults to issue date and is editable on a draft |
+| Q7 | Weight loss in transit is not the business's concern: difference is displayed only, never blocks or deducts |
+| Q8 | VAT optional: "VAT registered" tick box in company settings drives whether VAT is calculated and shown |
+| Q13 | Admin creates deliveries |
+| — | Single company (one business using the system) for now |
+
+Still open from these answers: supplier weight basis (Q3), driver accounts (Q12). Q17 answered with 5 sample photos (§8.1).
+
+## 11. Unresolved business questions
 
 These need answers before the related part is built. Nothing below will be assumed.
+
+**Raised by the sample slips (most important)**
+- **Q21. Who is the business?** Every slip names **PBSA Logistics** as the transport company, and the purchase orders contain "PBSA" (`G2RPBSA202610`, `G2MSPBSA202610`). Is the business using this system PBSA Logistics, paid by Exxaro per ton to haul coal? If so, there may be **no coal supplier to pay** — the "supplier side" would instead be things like subcontracted trucks — and the main customer is Exxaro. Or does the business buy coal from Grootegeluk and sell it on?
+- **Q22. Price per route?** The samples show two routes (Grootegeluk → Rustenburg Depot, Grootegeluk Reductant → Mmamoso Siding). Is the rate per ton set per **route** (origin → destination), per product, or both?
+- **Q23. Purchase orders.** Must each invoice quote the PO number (one PO per route per month, judging by `…202610`)? Should invoices be grouped per PO?
 
 **Scope & setup**
 - **Q1.** ~~Separate repository?~~ **Answered:** yes, this repository.
@@ -308,7 +358,7 @@ These need answers before the related part is built. Nothing below will be assum
 
 ---
 
-## 11. Implementation roadmap
+## 12. Implementation roadmap
 
 Each phase ends with a test gate before the next starts.
 
